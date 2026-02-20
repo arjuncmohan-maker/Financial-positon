@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TT and Co. — Exercise 3.6 — Financial Accounting Workings</title>
+<meta name="description" content="Interactive financial accounting workings for TT and Co Exercise 3.6. Click any number to trace it back to its transaction." />
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'DM Sans', sans-serif; background: #f7f5f0; color: #1a1a2e; }
+  @keyframes popIn { from { opacity: 0; transform: scale(0.95) translateY(4px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+  @keyframes highlightPulse { 0% { box-shadow: 0 0 0 0 rgba(30,64,175,0.4); } 70% { box-shadow: 0 0 0 8px rgba(30,64,175,0); } 100% { box-shadow: 0 0 0 0 rgba(30,64,175,0); } }
+  .num-highlight { animation: highlightPulse 1s ease-out infinite; background: #fef08a !important; border-radius: 4px; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #d4cfc7; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useEffect, createContext, useContext } = React;
+
+// ══════════════════════════════════════════════════════════
+// VERIFIED FIGURES — All cross-checked
+// Cash: 750−20000−15000−1300−13000−36700−2440−8000+54000+178000−71000−16200 = 49,110 ✓
+// Total Assets: 113,535 ✓ | Total L+E: 113,535 ✓ | Net Profit: 37,085 ✓
+// ══════════════════════════════════════════════════════════
+
+const C = {
+  bg: "#f7f5f0", board: "#ffffff", border: "#d4cfc7",
+  ink: "#1a1a2e", inkDim: "#4a4a5a", inkMuted: "#8a8a9a",
+  blue: "#1e40af", blueBg: "#eff6ff", blueBorder: "#bfdbfe",
+  red: "#b91c1c", redBg: "#fef2f2", redBorder: "#fecaca",
+  green: "#15803d", greenBg: "#f0fdf4", greenBorder: "#bbf7d0",
+  purple: "#7c3aed", purpleBg: "#faf5ff", purpleBorder: "#ddd6fe",
+  orange: "#c2410c", orangeBg: "#fff7ed", orangeBorder: "#fed7aa",
+  yellow: "#a16207", yellowBg: "#fefce8",
+  tooltip: "#1e293b", tooltipText: "#f1f5f9",
+};
+
+const TX = {
+  1: { title: "Owners Withdrawal", short: "Owners withdrew £20,000 of equity as cash.", detail: "When owners take money out, it's called 'drawings'. It reduces their ownership claim (Equity) and the business's cash. This is NOT an expense — it's a distribution to owners." },
+  2: { title: "Rent for 2017", short: "Annual rent £20,000. Prepaid £5,000 from 2016 used up; £15,000 paid in cash.", detail: "The full-year rent is £20,000. Last year, £5,000 was paid in advance (prepaid asset). That prepaid is now 'consumed' as 2017 arrives. The remaining £15,000 was paid in cash during the year. Total rent expense = £20,000." },
+  3: { title: "Rates (Property Tax)", short: "£1,300 paid for 1 Apr 2017 – 31 Mar 2018. Old prepaid £300 covered Jan–Mar 2017.", detail: "The opening prepaid of £300 covers Jan–Mar 2017 (3 months from last year's payment). The new £1,300 covers 12 months (Apr 2017 – Mar 2018). Only 9 months (Apr–Dec 2017) = £975 is this year's expense. The remaining 3 months (Jan–Mar 2018) = £325 becomes a closing prepaid asset. Total 2017 rates expense = £300 + £975 = £1,275." },
+  4: { title: "New Delivery Van Purchase", short: "Second van bought 1 Jan 2017 for £13,000 cash. Life: 4 years, residual value: £3,000.", detail: "A non-current asset is acquired. The full cost is capitalised (added to the balance sheet), NOT expensed. The cost will be spread over its useful life via depreciation. Depreciation = (£13,000 − £3,000) ÷ 4 = £2,500 per year." },
+  "4d": { title: "Depreciation for 2017", short: "Van 1: £2,500. Van 2: (£13,000 − £3,000) ÷ 4 = £2,500. Total: £5,000.", detail: "Straight-line depreciation allocates equal amounts each year. Van 1 had £2,500 last year (opening acc. dep.) and another £2,500 this year. Van 2 is new: (cost − residual) ÷ life = (13,000 − 3,000) ÷ 4 = £2,500. Depreciation is a NON-CASH expense — no money leaves, but assets lose book value." },
+  5: { title: "Wages", short: "£36,700 paid in cash. £860 owed at year-end. Opening accrual of £630 was settled.", detail: "Of the £36,700 paid, £630 settles last year's accrued wages (that was last year's expense, not this year's). At year-end, £860 is owed but unpaid (this year's expense, to be paid next year). Wages expense = £36,700 − £630 + £860 = £36,930. This is accrual accounting: match expense to the period it relates to, not when cash moves." },
+  6: { title: "Electricity", short: "Paid £1,820 (Q1–Q3 2017) + £620 (Q4 2016 accrual). Q4 2017 bill: £690 accrued.", detail: "The £620 payment settles last year's Q4 accrual — that's NOT this year's expense. The £1,820 covers Q1–Q3 of 2017 (this year's expense). After year-end, the Q4 2017 bill arrives at £690 — this IS this year's expense (accrued as a liability). Electricity expense = £1,820 + £690 = £2,510. Cash paid = £1,820 + £620 = £2,440." },
+  7: { title: "Inventory on Credit", short: "£67,000 of inventories purchased on credit.", detail: "Buying 'on credit' means goods received now, payment later. Inventory (asset) increases and Trade Payables (liability) increases. No cash moves. The double entry: Dr Inventories £67,000 / Cr Trade Payables £67,000." },
+  8: { title: "Inventory for Cash", short: "£8,000 of inventories purchased for cash.", detail: "A swap of one asset for another. Cash decreases, Inventory increases by the same amount. Total assets unchanged. Dr Inventories £8,000 / Cr Cash £8,000." },
+  9: { title: "Credit Sales", short: "Revenue £179,000 on credit. Cost of those goods: £89,000.", detail: "Two entries happen simultaneously: (1) Revenue recognised and Trade Receivables created — customers owe us. (2) Inventory reduced and Cost of Sales recorded — goods leave our stock. Gross profit on these sales = £179,000 − £89,000 = £90,000." },
+  10: { title: "Cash Sales", short: "Revenue £54,000 cash. Cost of those goods: £25,000.", detail: "Same as credit sales, but cash received immediately instead of a receivable being created. Gross profit = £54,000 − £25,000 = £29,000." },
+  11: { title: "Collections from Customers", short: "£178,000 received from trade receivables.", detail: "Customers paying what they owe. Cash increases, Trade Receivables decrease. This does NOT affect revenue or profit — that was already recorded at the point of sale (Tx 9). This is just the cash settlement." },
+  12: { title: "Payments to Suppliers", short: "£71,000 paid to trade payables.", detail: "Settling debts to suppliers. Cash decreases, Trade Payables decrease. No effect on expenses or profit — the cost was recorded when goods were received/sold. This is just the cash settlement." },
+  13: { title: "Van Running Expenses", short: "£16,200 paid in cash for van operating costs.", detail: "Day-to-day costs: fuel, maintenance, insurance, repairs, etc. Fully expensed immediately — no prepayment or accrual complications. Cash out, expense recorded. Dr Van Running Expenses £16,200 / Cr Cash £16,200." },
+};
+
+const TX_LEGEND = [
+  { id: 1, label: "Owners Withdrawal", amount: "£20,000 cash out", cat: "equity", icon: "👤" },
+  { id: 2, label: "Rent Expense", amount: "£20k (£5k prepaid + £15k cash)", cat: "expense", icon: "🏠" },
+  { id: 3, label: "Rates Expense", amount: "£1,300 paid → £1,275 expense", cat: "expense", icon: "🏛️" },
+  { id: 4, label: "New Van Purchase", amount: "£13,000 cash", cat: "asset", icon: "🚐" },
+  { id: "4d", label: "Depreciation", amount: "£5,000 (£2,500 × 2 vans)", cat: "expense", icon: "📉" },
+  { id: 5, label: "Wages", amount: "£36,700 paid → £36,930 exp", cat: "expense", icon: "💼" },
+  { id: 6, label: "Electricity", amount: "£2,440 paid → £2,510 exp", cat: "expense", icon: "⚡" },
+  { id: 7, label: "Inventory (Credit)", amount: "£67,000", cat: "asset", icon: "📦" },
+  { id: 8, label: "Inventory (Cash)", amount: "£8,000", cat: "asset", icon: "📦" },
+  { id: 9, label: "Credit Sales", amount: "£179k rev / £89k cost", cat: "revenue", icon: "💳" },
+  { id: 10, label: "Cash Sales", amount: "£54k rev / £25k cost", cat: "revenue", icon: "💰" },
+  { id: 11, label: "Collect Receivables", amount: "£178,000 cash in", cat: "asset", icon: "📥" },
+  { id: 12, label: "Pay Suppliers", amount: "£71,000 cash out", cat: "liability", icon: "📤" },
+  { id: 13, label: "Van Running Costs", amount: "£16,200 cash", cat: "expense", icon: "⛽" },
+];
+
+const catColors = {
+  equity: { bg: "#f0fdf4", border: "#bbf7d0", dot: "#15803d" },
+  expense: { bg: "#fef2f2", border: "#fecaca", dot: "#b91c1c" },
+  asset: { bg: "#eff6ff", border: "#bfdbfe", dot: "#1e40af" },
+  revenue: { bg: "#f0fdf4", border: "#bbf7d0", dot: "#15803d" },
+  liability: { bg: "#faf5ff", border: "#ddd6fe", dot: "#7c3aed" },
+};
+
+// Global highlight context
+const HighlightCtx = createContext({ activeTx: null, setActiveTx: () => {} });
+
+// ─── Clickable Number ───
+function N({ value, tx, reason, dir, children }) {
+  const [show, setShow] = useState(false);
+  const elRef = useRef(null);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const txData = TX[tx];
+  const { activeTx } = useContext(HighlightCtx);
+  const isHighlighted = activeTx !== null && String(activeTx) === String(tx);
+
+  useEffect(() => {
+    if (show && elRef.current) {
+      const rect = elRef.current.getBoundingClientRect();
+      const pw = 370, ph = 350, pad = 12;
+      let left = rect.left + rect.width / 2 - pw / 2;
+      left = Math.max(pad, Math.min(left, window.innerWidth - pw - pad));
+      let top;
+      if (rect.bottom + pad + ph < window.innerHeight) top = rect.bottom + pad;
+      else if (rect.top - pad - ph > 0) top = rect.top - pad - ph;
+      else top = Math.max(pad, (window.innerHeight - ph) / 2);
+      setPos({ top, left });
+    }
+  }, [show]);
+
+  useEffect(() => {
+    if (!show) return;
+    const close = () => setShow(false);
+    window.addEventListener("scroll", close, { passive: true, once: true });
+    return () => window.removeEventListener("scroll", close);
+  }, [show]);
+
+  const isNeg = dir === "sub";
+  const isPos = dir === "add";
+  const display = children || `£${Math.abs(value).toLocaleString("en-GB")}`;
+
+  return (
+    <>
+      <span
+        ref={elRef}
+        onClick={(e) => { e.stopPropagation(); setShow(!show); }}
+        className={isHighlighted ? "num-highlight" : ""}
+        style={{
+          cursor: "pointer", position: "relative",
+          fontFamily: "'Caveat', cursive", fontSize: "inherit",
+          color: isNeg ? C.red : isPos ? C.green : "inherit",
+          background: show ? "#fef08a" : isHighlighted ? "#fef08a" : isNeg ? C.redBg : isPos ? C.greenBg : "transparent",
+          padding: "1px 5px", borderRadius: 4, transition: "all 0.2s",
+          borderBottom: `2px dotted ${isNeg ? C.red + "66" : isPos ? C.green + "66" : C.inkMuted + "44"}`,
+          whiteSpace: "nowrap",
+          outline: isHighlighted ? `2px solid ${C.blue}` : "none",
+          outlineOffset: 1,
+          zIndex: isHighlighted ? 5 : "auto",
+        }}
+        onMouseEnter={(e) => { if (!show && !isHighlighted) e.currentTarget.style.background = "#fef08a"; }}
+        onMouseLeave={(e) => { if (!show && !isHighlighted) e.currentTarget.style.background = isNeg ? C.redBg : isPos ? C.greenBg : "transparent"; }}
+      >
+        {isNeg && "– "}{isPos && "+ "}{display}
+        <span style={{
+          position: "absolute", top: -7, right: -7,
+          width: 16, height: 16, borderRadius: "50%",
+          background: isHighlighted ? "#dc2626" : C.blue, color: "#fff",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 9, fontWeight: 800, fontFamily: "'DM Sans', sans-serif",
+          transition: "background 0.2s",
+          transform: isHighlighted ? "scale(1.2)" : "scale(1)",
+        }}>{tx}</span>
+      </span>
+
+      {show && (
+        <>
+          <div onClick={() => setShow(false)} style={{
+            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+            zIndex: 9998, background: "rgba(0,0,0,0.3)", backdropFilter: "blur(2px)",
+          }} />
+          <div onClick={(e) => e.stopPropagation()} style={{
+            position: "fixed", top: pos.top, left: pos.left, zIndex: 9999,
+            width: 370, maxHeight: "80vh", overflowY: "auto",
+            background: C.tooltip, color: C.tooltipText,
+            borderRadius: 14, padding: 18,
+            boxShadow: "0 12px 48px rgba(0,0,0,0.4)", border: "1px solid #334155",
+            animation: "popIn 0.15s ease-out",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid #334155" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{
+                  width: 28, height: 28, borderRadius: "50%", background: C.blue, color: "#fff",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 12, fontWeight: 800, fontFamily: "'DM Sans', sans-serif", flexShrink: 0,
+                }}>{tx}</span>
+                <span style={{ fontWeight: 700, fontSize: 15, fontFamily: "'DM Sans', sans-serif" }}>{txData?.title}</span>
+              </div>
+              <button onClick={(e) => { e.stopPropagation(); setShow(false); }} style={{
+                background: "#334155", border: "none", color: "#94a3b8", cursor: "pointer",
+                fontSize: 14, padding: "2px 8px", borderRadius: 6, fontWeight: 700,
+              }}>✕</button>
+            </div>
+            <div style={{ fontSize: 13, color: "#cbd5e1", marginBottom: 12, lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>{txData?.short}</div>
+            <div style={{
+              padding: "10px 12px", borderRadius: 10,
+              background: isNeg ? "#7f1d1d33" : isPos ? "#14532d33" : "#1e3a5f33",
+              border: `1px solid ${isNeg ? "#f8717144" : isPos ? "#34d39944" : "#64748b44"}`,
+              marginBottom: 12,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 18 }}>{isNeg ? "🔻" : isPos ? "🔺" : "📌"}</span>
+                <span style={{
+                  fontSize: 13, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em",
+                  color: isNeg ? "#f87171" : isPos ? "#34d399" : "#94a3b8", fontFamily: "'DM Sans', sans-serif",
+                }}>{isNeg ? "SUBTRACTED" : isPos ? "ADDED" : "OPENING BALANCE"} — £{Math.abs(value).toLocaleString("en-GB")}</span>
+              </div>
+              <div style={{ fontSize: 13, color: "#e2e8f0", fontFamily: "'DM Sans', sans-serif", lineHeight: 1.6 }}>{reason}</div>
+            </div>
+            <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.7, fontFamily: "'DM Sans', sans-serif", borderTop: "1px solid #334155", paddingTop: 10 }}>
+              <span style={{ color: "#fbbf24", fontWeight: 700 }}>💡 Full context: </span>{txData?.detail}
+            </div>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+// ─── Helper Components ───
+const SectionHead = ({ children, color }) => (
+  <div style={{
+    fontFamily: "'Caveat', cursive", fontSize: 23, fontWeight: 700,
+    color, borderBottom: `2px solid ${color}`, paddingBottom: 3,
+    marginBottom: 10, marginTop: 18, display: "inline-block",
+  }}>{children}</div>
+);
+
+const ResultBox = ({ label, value, color, bg, border }) => (
+  <div style={{
+    display: "flex", justifyContent: "space-between", padding: "8px 14px",
+    background: bg, borderRadius: 8, border: `1px solid ${border}`, marginTop: 8, marginBottom: 4,
+  }}>
+    <span style={{ fontFamily: "'Caveat', cursive", fontSize: 20, fontWeight: 700, color }}>{label}</span>
+    <span style={{ fontFamily: "'Caveat', cursive", fontSize: 22, fontWeight: 800, color }}>£{value.toLocaleString("en-GB")}</span>
+  </div>
+);
+
+const BigResult = ({ label, value, color, sub }) => (
+  <div style={{ marginTop: 14, padding: "12px 18px", borderRadius: 10, background: `${color}11`, border: `2px solid ${color}` }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <span style={{ fontFamily: "'Caveat', cursive", fontSize: 24, fontWeight: 800, color }}>{label}</span>
+      <span style={{ fontFamily: "'Caveat', cursive", fontSize: 26, fontWeight: 800, color }}>£{value.toLocaleString("en-GB")}</span>
+    </div>
+    {sub && <div style={{ fontSize: 12, color: C.inkMuted, textAlign: "right", marginTop: 2 }}>{sub}</div>}
+  </div>
+);
+
+const WorkingRow = ({ label, children, result, resultColor, note }) => (
+  <div style={{ marginBottom: 12, position: "relative" }}>
+    <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 3, lineHeight: 2.2 }}>
+      <span style={{ fontWeight: 700, color: C.ink, minWidth: 110, fontFamily: "'Caveat', cursive", fontSize: 20, flexShrink: 0 }}>{label}</span>
+      <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 3 }}>
+        {children}
+        <span style={{
+          fontFamily: "'Caveat', cursive", fontSize: 22, fontWeight: 800,
+          color: resultColor || C.blue, borderBottom: `2px solid ${resultColor || C.blue}`,
+          padding: "0 6px", marginLeft: 6,
+        }}>= £{result}</span>
+      </div>
+    </div>
+    {note && <div style={{ marginLeft: 114, marginTop: 0, fontSize: 12, color: C.inkMuted, fontStyle: "italic", fontFamily: "'DM Sans', sans-serif" }}>{note}</div>}
+  </div>
+);
+
+// ─── Main App ───
+function App() {
+  const [activeTx, setActiveTx] = useState(null);
+  const [legendOpen, setLegendOpen] = useState(null);
+
+  return (
+    <HighlightCtx.Provider value={{ activeTx, setActiveTx }}>
+    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'DM Sans', sans-serif", padding: "20px 10px" }}>
+      <div style={{ maxWidth: 1480, margin: "0 auto" }}>
+
+        {/* Header */}
+        <div style={{ textAlign: "center", marginBottom: 16 }}>
+          <h1 style={{ fontFamily: "'Caveat', cursive", fontSize: 36, color: C.ink, margin: "0 0 2px" }}>
+            TT and Co. — Exercise 3.6
+          </h1>
+          <p style={{ color: C.inkMuted, fontSize: 14, margin: "0 0 6px" }}>
+            Complete financial accounting workings — every number is clickable and traceable
+          </p>
+          <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{
+              background: C.yellowBg, border: "1px solid #fbbf24", borderRadius: 20,
+              padding: "4px 14px", fontSize: 12, color: C.yellow, fontWeight: 600,
+            }}>
+              Click any coloured number → see popup details
+            </span>
+            <span style={{
+              background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: 20,
+              padding: "4px 14px", fontSize: 12, color: C.blue, fontWeight: 600,
+            }}>
+              Click a transaction on the left → highlights it everywhere
+            </span>
+          </div>
+        </div>
+
+        {/* 3-column grid */}
+        <div style={{ display: "grid", gridTemplateColumns: "225px 1fr 1fr", gap: 16, alignItems: "start" }}>
+
+          {/* ══════════ LEGEND SIDEBAR ══════════ */}
+          <div style={{
+            position: "sticky", top: 12,
+            background: C.board, border: `2px solid ${C.border}`, borderRadius: 12,
+            padding: "14px 10px", boxShadow: "2px 4px 12px rgba(0,0,0,0.05)",
+            maxHeight: "calc(100vh - 24px)", overflowY: "auto",
+          }}>
+            <div style={{
+              fontFamily: "'Caveat', cursive", fontSize: 22, fontWeight: 700,
+              color: C.ink, textAlign: "center", borderBottom: `2px solid ${C.border}`,
+              paddingBottom: 6, marginBottom: 10,
+            }}>📋 Transactions</div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {TX_LEGEND.map((tx) => {
+                const cc = catColors[tx.cat];
+                const isActive = String(activeTx) === String(tx.id);
+                const isOpen = legendOpen === tx.id;
+                return (
+                  <div key={tx.id}>
+                    <div
+                      onClick={() => {
+                        const newVal = isActive ? null : tx.id;
+                        setActiveTx(newVal);
+                        setLegendOpen(isOpen && isActive ? null : tx.id);
+                      }}
+                      style={{
+                        display: "flex", alignItems: "flex-start", gap: 7,
+                        padding: "6px 7px", borderRadius: 8, cursor: "pointer",
+                        background: isActive ? cc.bg : "transparent",
+                        border: `1.5px solid ${isActive ? cc.dot + "66" : "transparent"}`,
+                        transition: "all 0.15s",
+                      }}
+                      onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = "#f5f3ee"; }}
+                      onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = isActive ? cc.bg : "transparent"; }}
+                    >
+                      <span style={{
+                        width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+                        background: isActive ? C.blue : "#e2e8f0",
+                        color: isActive ? "#fff" : C.inkDim,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 10, fontWeight: 800, fontFamily: "'DM Sans', sans-serif",
+                        transition: "all 0.15s", marginTop: 1,
+                      }}>{tx.id}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          fontSize: 12, fontWeight: 600, color: isActive ? C.ink : C.inkDim,
+                          lineHeight: 1.3, display: "flex", alignItems: "center", gap: 3,
+                        }}>
+                          <span style={{ fontSize: 12 }}>{tx.icon}</span>
+                          <span>{tx.label}</span>
+                        </div>
+                        <div style={{ fontSize: 10, color: C.inkMuted, lineHeight: 1.3, marginTop: 1 }}>{tx.amount}</div>
+                      </div>
+                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: cc.dot, flexShrink: 0, marginTop: 6, opacity: 0.5 }} />
+                    </div>
+                    {isOpen && (
+                      <div style={{
+                        margin: "2px 0 4px 30px", padding: "8px 10px",
+                        background: "#f8f7f4", borderRadius: 8, border: `1px solid ${C.border}`,
+                        fontSize: 11, color: C.inkDim, lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif",
+                        animation: "popIn 0.12s ease-out",
+                      }}>
+                        {TX[tx.id]?.short}
+                        <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${C.border}`, fontSize: 10, color: C.inkMuted, lineHeight: 1.5 }}>
+                          💡 {TX[tx.id]?.detail}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Clear button */}
+            {activeTx !== null && (
+              <button onClick={() => { setActiveTx(null); setLegendOpen(null); }} style={{
+                display: "block", width: "100%", marginTop: 10, padding: "7px 0",
+                background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: 8,
+                color: C.red, fontSize: 12, fontWeight: 700, cursor: "pointer",
+                fontFamily: "'DM Sans', sans-serif",
+              }}>✕ Clear highlight</button>
+            )}
+
+            {/* Key */}
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.inkMuted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Colour Key</div>
+              {[
+                { l: "Asset / Cash flow", c: "#1e40af" }, { l: "Revenue", c: "#15803d" },
+                { l: "Expenses", c: "#b91c1c" }, { l: "Liability", c: "#7c3aed" },
+              ].map(x => (
+                <div key={x.l} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: x.c, opacity: 0.6, flexShrink: 0 }} />
+                  <span style={{ fontSize: 10, color: C.inkMuted }}>{x.l}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ══════════ FINANCIAL POSITION ══════════ */}
+          <div style={{
+            background: C.board, border: `2px solid ${C.border}`, borderRadius: 12,
+            padding: 22, boxShadow: "2px 4px 12px rgba(0,0,0,0.05)",
+          }}>
+            <div style={{
+              fontFamily: "'Caveat', cursive", fontSize: 26, fontWeight: 700, color: C.ink,
+              textAlign: "center", borderBottom: `3px double ${C.ink}`, paddingBottom: 6, marginBottom: 14,
+            }}>Statement of Financial Position<br/><span style={{ fontSize: 20 }}>as at 31 December 2017</span></div>
+
+            <div style={{ fontFamily: "'Caveat', cursive", fontSize: 22, fontWeight: 700, color: C.ink, textAlign: "center", background: C.blueBg, borderRadius: 8, padding: "4px 0", marginBottom: 12 }}>A (Assets)</div>
+
+            <SectionHead color={C.blue}>Current Assets</SectionHead>
+
+            <WorkingRow label="Cash" result="49,110" resultColor={C.blue}>
+              <N value={750} tx="-" dir={null} reason="Opening balance from 31 Dec 2016.">£750</N>
+              <N value={20000} tx={1} dir="sub" reason="Owners took £20,000 out of the business as a cash withdrawal (drawings).">£20,000</N>
+              <N value={15000} tx={2} dir="sub" reason="Cash paid for rent during 2017. The other £5,000 was covered by the 2016 prepayment.">£15,000</N>
+              <N value={1300} tx={3} dir="sub" reason="Cash paid for rates covering Apr 2017 – Mar 2018.">£1,300</N>
+              <N value={13000} tx={4} dir="sub" reason="Cash paid to purchase the second delivery van.">£13,000</N>
+              <N value={36700} tx={5} dir="sub" reason="Cash paid for wages during the year (includes settling £630 from last year).">£36,700</N>
+              <N value={2440} tx={6} dir="sub" reason="Cash paid for electricity: £1,820 for Q1–Q3 2017 + £620 settling last year's Q4 accrual.">£2,440</N>
+              <N value={8000} tx={8} dir="sub" reason="Cash paid for inventory purchases.">£8,000</N>
+              <N value={54000} tx={10} dir="add" reason="Cash received directly from customers for cash sales.">£54,000</N>
+              <N value={178000} tx={11} dir="add" reason="Cash collected from customers who previously bought on credit.">£178,000</N>
+              <N value={71000} tx={12} dir="sub" reason="Cash paid to suppliers for goods previously bought on credit.">£71,000</N>
+              <N value={16200} tx={13} dir="sub" reason="Cash paid for van running costs (fuel, maintenance, insurance etc.).">£16,200</N>
+            </WorkingRow>
+
+            <WorkingRow label="Trade Rec." result="20,600" resultColor={C.blue}>
+              <N value={19600} tx="-" dir={null} reason="Opening balance — money owed by customers from 2016 credit sales.">£19,600</N>
+              <N value={179000} tx={9} dir="add" reason="New credit sales in 2017 — customers now owe us this amount.">£179,000</N>
+              <N value={178000} tx={11} dir="sub" reason="Cash collected from credit customers — they've paid, so they owe less.">£178,000</N>
+            </WorkingRow>
+
+            <WorkingRow label="Inventories" result="26,000" resultColor={C.blue}>
+              <N value={65000} tx="-" dir={null} reason="Opening stock of goods on hand at 31 Dec 2016.">£65,000</N>
+              <N value={67000} tx={7} dir="add" reason="Inventory purchased on credit from suppliers.">£67,000</N>
+              <N value={8000} tx={8} dir="add" reason="Inventory purchased for cash.">£8,000</N>
+              <N value={89000} tx={9} dir="sub" reason="Cost of goods sold on credit. These goods left our stock when sold.">£89,000</N>
+              <N value={25000} tx={10} dir="sub" reason="Cost of goods sold for cash. These goods left our stock when sold.">£25,000</N>
+            </WorkingRow>
+
+            <WorkingRow label="Prepaid" result="325" resultColor={C.blue} note="Old prepaids used up. New: rates £325 for Jan–Mar 2018.">
+              <N value={5300} tx="-" dir={null} reason="Opening prepaid: Rent £5,000 + Rates £300 = £5,300.">£5,300</N>
+              <N value={5000} tx={2} dir="sub" reason="Prepaid rent consumed — covered 2017 rent, now an expense.">£5,000</N>
+              <N value={300} tx={3} dir="sub" reason="Prepaid rates consumed — covered Jan–Mar 2017, now an expense.">£300</N>
+              <N value={325} tx={3} dir="add" reason="New prepaid: 3/12 of £1,300 = £325 for Jan–Mar 2018.">£325</N>
+            </WorkingRow>
+
+            <ResultBox label="Total Current Assets" value={96035} color={C.blue} bg={C.blueBg} border={C.blueBorder} />
+
+            <SectionHead color={C.orange}>Non-Current Assets</SectionHead>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 4 }}>
+              {[
+                { name: "Van 1 (old)", cost: 12000, depT: 5000, nbv: 7000, note: "£2,500/yr × 2 years", txC: "-", txD: "4d" },
+                { name: "Van 2 (new)", cost: 13000, depT: 2500, nbv: 10500, note: "(13k−3k)÷4 = £2,500/yr", txC: 4, txD: "4d" },
+              ].map(v => (
+                <div key={v.name} style={{ background: C.orangeBg, padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.orangeBorder}` }}>
+                  <div style={{ fontFamily: "'Caveat', cursive", fontSize: 17, color: C.orange, fontWeight: 700 }}>{v.name}</div>
+                  <div style={{ fontFamily: "'Caveat', cursive", fontSize: 18, color: C.ink }}>
+                    Cost: <N value={v.cost} tx={v.txC} dir={null} reason={v.txC === "-" ? "Original cost from 2016." : "Purchase price of the new van."}>£{v.cost.toLocaleString()}</N>
+                  </div>
+                  <div style={{ fontFamily: "'Caveat', cursive", fontSize: 18, color: C.red }}>
+                    Acc. Dep: <N value={v.depT} tx={v.txD} dir="sub" reason={`Accumulated depreciation. ${v.note}`}>(£{v.depT.toLocaleString()})</N>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.inkMuted, marginTop: 2 }}>{v.note}</div>
+                  <div style={{ fontFamily: "'Caveat', cursive", fontSize: 20, fontWeight: 800, color: C.orange, borderTop: `2px solid ${C.orange}`, marginTop: 4, paddingTop: 4 }}>NBV: £{v.nbv.toLocaleString()}</div>
+                </div>
+              ))}
+            </div>
+            <ResultBox label="Total Non-Current Assets" value={17500} color={C.orange} bg={C.orangeBg} border={C.orangeBorder} />
+            <BigResult label="TOTAL ASSETS" value={113535} color={C.blue} sub="96,035 + 17,500" />
+
+            <div style={{ height: 2, background: C.ink, margin: "20px 0", opacity: 0.2 }} />
+
+            <div style={{ fontFamily: "'Caveat', cursive", fontSize: 22, fontWeight: 700, color: C.ink, textAlign: "center", background: C.greenBg, borderRadius: 8, padding: "4px 0", marginBottom: 12 }}>L + E (Liabilities + Equity)</div>
+
+            <SectionHead color={C.purple}>Current Liabilities</SectionHead>
+
+            <WorkingRow label="Trade Pay." result="18,000" resultColor={C.purple}>
+              <N value={22000} tx="-" dir={null} reason="Opening balance — owed to suppliers from 2016 credit purchases.">£22,000</N>
+              <N value={67000} tx={7} dir="add" reason="New credit purchases — we owe suppliers more.">£67,000</N>
+              <N value={71000} tx={12} dir="sub" reason="Cash paid to suppliers — settling debts.">£71,000</N>
+            </WorkingRow>
+
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, color: C.ink, fontFamily: "'Caveat', cursive", fontSize: 20, marginBottom: 4 }}>Accrued Expenses</div>
+              <div style={{ marginLeft: 12, fontFamily: "'Caveat', cursive", fontSize: 18, lineHeight: 2.2 }}>
+                <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 3 }}>
+                  <span style={{ color: C.inkDim, minWidth: 80 }}>Wages:</span>
+                  <N value={630} tx="-" dir={null} reason="Opening accrual — wages owed from Dec 2016.">£630</N>
+                  <N value={630} tx={5} dir="sub" reason="Last year's accrued wages paid off (part of the £36,700 cash payment).">£630</N>
+                  <N value={860} tx={5} dir="add" reason="New year-end accrual — last week of Dec 2017, not yet paid.">£860</N>
+                  <span style={{ fontWeight: 800, color: C.purple, borderBottom: `2px solid ${C.purple}`, padding: "0 4px" }}>= £860</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 3 }}>
+                  <span style={{ color: C.inkDim, minWidth: 80 }}>Electricity:</span>
+                  <N value={620} tx="-" dir={null} reason="Opening accrual — Q4 2016 electricity bill, unpaid at year-end 2016.">£620</N>
+                  <N value={620} tx={6} dir="sub" reason="Last year's Q4 electricity accrual settled in cash during 2017.">£620</N>
+                  <N value={690} tx={6} dir="add" reason="New Q4 2017 bill — arrived after year-end at £690, not yet paid.">£690</N>
+                  <span style={{ fontWeight: 800, color: C.purple, borderBottom: `2px solid ${C.purple}`, padding: "0 4px" }}>= £690</span>
+                </div>
+              </div>
+              <div style={{ marginLeft: 12, fontFamily: "'Caveat', cursive", fontSize: 20, fontWeight: 800, color: C.purple, marginTop: 4 }}>Total Accrued: £860 + £690 = £1,550</div>
+            </div>
+
+            <ResultBox label="Total Current Liabilities" value={19550} color={C.purple} bg={C.purpleBg} border={C.purpleBorder} />
+            <div style={{ margin: "10px 0", fontFamily: "'Caveat', cursive", fontSize: 18, color: C.inkMuted }}>Non-Current Liabilities: — (none)</div>
+
+            <SectionHead color={C.green}>Equity</SectionHead>
+
+            <WorkingRow label="Original Eq." result="30,000" resultColor={C.green}>
+              <N value={50000} tx="-" dir={null} reason="Opening equity — the owners' original investment.">£50,000</N>
+              <N value={20000} tx={1} dir="sub" reason="Owners withdrew £20,000 — drawings reduce equity.">£20,000</N>
+            </WorkingRow>
+
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, color: C.ink, fontFamily: "'Caveat', cursive", fontSize: 20, marginBottom: 6 }}>Retained Earnings</div>
+              <div style={{ background: C.greenBg, border: `1px solid ${C.greenBorder}`, borderRadius: 10, padding: "12px 14px" }}>
+                <div style={{ fontFamily: "'Caveat', cursive", fontSize: 18, color: C.ink }}>Opening: <b>£26,900</b></div>
+                <div style={{ fontFamily: "'Caveat', cursive", fontSize: 18, color: C.green }}>+ Net Profit: <b>£37,085</b></div>
+                <div style={{ fontFamily: "'Caveat', cursive", fontSize: 14, color: C.inkMuted, marginLeft: 12 }}>(Rev £233,000 − CoGS £114,000 − Expenses £81,915)</div>
+                <div style={{ fontFamily: "'Caveat', cursive", fontSize: 22, fontWeight: 800, color: C.green, borderTop: `2px solid ${C.green}`, paddingTop: 6, marginTop: 4 }}>= £26,900 + £37,085 = £63,985</div>
+              </div>
+            </div>
+
+            <ResultBox label="Total Equity" value={93985} color={C.green} bg={C.greenBg} border={C.greenBorder} />
+            <div style={{ marginLeft: 14, fontSize: 12, color: C.inkMuted }}>£30,000 + £63,985 = £93,985</div>
+            <BigResult label="TOTAL L + E" value={113535} color={C.green} sub="19,550 + 93,985" />
+
+            <div style={{ marginTop: 14, padding: 12, borderRadius: 10, textAlign: "center", background: "#f0fdf4", border: "2px dashed #15803d" }}>
+              <span style={{ fontFamily: "'Caveat', cursive", fontSize: 22, color: C.green, fontWeight: 700 }}>✓ BALANCED — Assets £113,535 = Liabilities + Equity £113,535</span>
+            </div>
+          </div>
+
+          {/* ══════════ INCOME STATEMENT ══════════ */}
+          <div>
+            <div style={{
+              background: C.board, border: `2px solid ${C.border}`, borderRadius: 12,
+              padding: 22, boxShadow: "2px 4px 12px rgba(0,0,0,0.05)",
+            }}>
+              <div style={{
+                fontFamily: "'Caveat', cursive", fontSize: 26, fontWeight: 700, color: C.ink,
+                textAlign: "center", borderBottom: `3px double ${C.ink}`, paddingBottom: 6, marginBottom: 14,
+              }}>Income Statement<br/><span style={{ fontSize: 20 }}>for the year ended 31 December 2017</span></div>
+
+              <SectionHead color={C.green}>Revenue</SectionHead>
+              <WorkingRow label="Revenue" result="233,000" resultColor={C.green}>
+                <N value={179000} tx={9} dir="add" reason="Revenue from credit sales.">£179,000</N>
+                <N value={54000} tx={10} dir="add" reason="Revenue from cash sales.">£54,000</N>
+              </WorkingRow>
+
+              <SectionHead color={C.red}>Cost of Sales</SectionHead>
+              <WorkingRow label="CoGS" result="114,000" resultColor={C.red}>
+                <N value={89000} tx={9} dir="add" reason="Cost of inventory sold on credit.">£89,000</N>
+                <N value={25000} tx={10} dir="add" reason="Cost of inventory sold for cash.">£25,000</N>
+              </WorkingRow>
+
+              <div style={{ padding: "10px 14px", borderRadius: 10, marginTop: 8, marginBottom: 14, background: C.greenBg, border: `2px solid ${C.green}` }}>
+                <div style={{ fontFamily: "'Caveat', cursive", fontSize: 22 }}>
+                  <span style={{ color: C.ink, fontWeight: 600 }}>Gross Profit: </span>
+                  <span style={{ color: C.green }}>233,000 </span>
+                  <span style={{ color: C.red }}>− 114,000 </span>
+                  <span style={{ color: C.green, fontWeight: 800, fontSize: 24 }}>= £119,000</span>
+                </div>
+              </div>
+
+              <SectionHead color={C.red}>Expenses</SectionHead>
+
+              <WorkingRow label="Rent" result="20,000" resultColor={C.red}>
+                <N value={5000} tx={2} dir="add" reason="Prepaid rent from 2016 consumed — now 2017's expense.">£5,000</N>
+                <N value={15000} tx={2} dir="add" reason="Cash paid for rent in 2017.">£15,000</N>
+              </WorkingRow>
+              <div style={{ marginLeft: 114, fontSize: 12, color: C.inkMuted, fontStyle: "italic", marginTop: -8, marginBottom: 8 }}>Full annual rent £20,000: £5,000 prepaid + £15,000 cash</div>
+
+              <WorkingRow label="Rates" result="1,275" resultColor={C.red}>
+                <N value={300} tx={3} dir="add" reason="Opening prepaid rates used up — covered Jan–Mar 2017.">£300</N>
+                <N value={975} tx={3} dir="add" reason="9 months of new payment: £1,300 × 9/12 = £975 (Apr–Dec 2017).">£975</N>
+              </WorkingRow>
+              <div style={{ marginLeft: 114, fontSize: 12, color: C.inkMuted, fontStyle: "italic", marginTop: -8, marginBottom: 8 }}>Jan–Mar: £300 + Apr–Dec: £975. Remaining £325 is 2018 prepaid.</div>
+
+              <WorkingRow label="Wages" result="36,930" resultColor={C.red}>
+                <N value={36700} tx={5} dir="add" reason="Total cash paid for wages during 2017.">£36,700</N>
+                <N value={630} tx={5} dir="sub" reason="Of the £36,700, £630 settled LAST year's accrual — that was 2016's expense.">£630</N>
+                <N value={860} tx={5} dir="add" reason="Wages owed for last week of 2017 — this year's expense, not yet paid.">£860</N>
+              </WorkingRow>
+              <div style={{ marginLeft: 114, fontSize: 12, color: C.inkMuted, fontStyle: "italic", marginTop: -8, marginBottom: 8 }}>Cash paid − old accrual + new accrual = actual 2017 expense</div>
+
+              <WorkingRow label="Electricity" result="2,510" resultColor={C.red}>
+                <N value={1820} tx={6} dir="add" reason="Cash paid for Q1–Q3 of 2017.">£1,820</N>
+                <N value={690} tx={6} dir="add" reason="Q4 2017 bill (£690) — accrued, not yet paid. This IS 2017's expense.">£690</N>
+              </WorkingRow>
+              <div style={{ marginLeft: 114, fontSize: 12, color: C.inkMuted, fontStyle: "italic", marginTop: -8, marginBottom: 8 }}>Note: £620 paid for 2016's Q4 is NOT included — that was last year's expense.</div>
+
+              <WorkingRow label="Depreciation" result="5,000" resultColor={C.red}>
+                <N value={2500} tx="4d" dir="add" reason="Van 1: £2,500/year (same rate as 2016).">£2,500</N>
+                <N value={2500} tx="4d" dir="add" reason="Van 2: (£13,000 − £3,000) ÷ 4 years = £2,500/year.">£2,500</N>
+              </WorkingRow>
+              <div style={{ marginLeft: 114, fontSize: 12, color: C.inkMuted, fontStyle: "italic", marginTop: -8, marginBottom: 8 }}>Non-cash expense — reduces asset book value over time.</div>
+
+              <WorkingRow label="Van Running" result="16,200" resultColor={C.red}>
+                <N value={16200} tx={13} dir="add" reason="Van operating costs — fuel, maintenance, insurance. All paid in cash.">£16,200</N>
+              </WorkingRow>
+
+              <ResultBox label="Total Expenses" value={81915} color={C.red} bg={C.redBg} border={C.redBorder} />
+              <div style={{ marginLeft: 14, fontSize: 12, color: C.inkMuted }}>20,000 + 1,275 + 36,930 + 2,510 + 5,000 + 16,200 = 81,915</div>
+
+              <div style={{ marginTop: 16, padding: "14px 18px", borderRadius: 12, background: "linear-gradient(135deg, #f0fdf4, #dcfce7)", border: `2px solid ${C.green}` }}>
+                <div style={{ fontFamily: "'Caveat', cursive", fontSize: 20, color: C.ink }}>Net Profit = Gross Profit − Total Expenses</div>
+                <div style={{ fontFamily: "'Caveat', cursive", fontSize: 22, color: C.ink, margin: "4px 0" }}>
+                  <span style={{ color: C.green }}>£119,000 </span><span style={{ color: C.red }}>− £81,915</span>
+                </div>
+                <div style={{ fontFamily: "'Caveat', cursive", fontSize: 28, fontWeight: 800, color: C.green, borderTop: `2px solid ${C.green}`, marginTop: 6, paddingTop: 6 }}>✨ Net Profit = £37,085</div>
+                <div style={{ fontSize: 12, color: C.inkMuted, marginTop: 4 }}>→ Flows into Retained Earnings on the Balance Sheet</div>
+              </div>
+            </div>
+
+            {/* Professor's Error Note */}
+            <div style={{
+              background: C.orangeBg, border: `2px solid ${C.orangeBorder}`, borderRadius: 12,
+              padding: 16, marginTop: 14, boxShadow: "2px 4px 12px rgba(0,0,0,0.05)",
+            }}>
+              <div style={{ fontFamily: "'Caveat', cursive", fontSize: 20, fontWeight: 700, color: C.orange, marginBottom: 6 }}>
+                ⚠️ Professor's £37,705 vs Our £37,085
+              </div>
+              <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.6 }}>
+                The difference is exactly <b>£620</b> — the opening electricity accrual from 2016.
+                The professor may have subtracted £620 from the electricity expense (£2,510 − £620 = £1,890), giving total expenses of £81,295 and net profit of £37,705.
+              </div>
+              <div style={{ fontSize: 13, color: C.inkDim, lineHeight: 1.6, marginTop: 8 }}>
+                <b>Why our £37,085 is correct:</b> The £620 was already recognised as 2016's expense when it was accrued last year. Paying it in 2017 just settles the liability — it doesn't reduce 2017's expense. The 2017 electricity expense is only: £1,820 (Q1–Q3 paid) + £690 (Q4 accrued) = <b>£2,510</b>.
+              </div>
+            </div>
+
+            {/* Key Concepts */}
+            <div style={{
+              background: C.board, border: `2px solid ${C.border}`, borderRadius: 12,
+              padding: 18, marginTop: 14, boxShadow: "2px 4px 12px rgba(0,0,0,0.05)",
+            }}>
+              <div style={{ fontFamily: "'Caveat', cursive", fontSize: 22, fontWeight: 700, color: C.yellow, marginBottom: 10 }}>💡 Key Concepts</div>
+              {[
+                { q: "Why subtract the old accrual from wages?", a: "£630 of the £36,700 cash was for LAST year's debt. It's 2016's expense, not 2017's." },
+                { q: "Why is the £620 electricity NOT a 2017 expense?", a: "It was already recognised as 2016's expense when accrued. The 2017 cash payment just clears the liability." },
+                { q: "Why is depreciation an expense with no cash?", a: "The van is being 'used up'. Its economic value decreases each year — a real cost of doing business." },
+                { q: "How do prepaid → expense conversions work?", a: "Prepaid = paid now, benefit later. When 'later' arrives, the prepaid becomes an expense." },
+                { q: "Why does Net Profit appear in both statements?", a: "The Income Statement calculates profit. That profit increases Retained Earnings on the Balance Sheet. This links the two statements." },
+                { q: "What's the format for these statements?", a: "Income Statement: Revenue − CoGS = Gross Profit − Expenses = Net Profit. Balance Sheet: Assets = Liabilities + Equity. Both follow IAS 1 presentation." },
+              ].map((item, i) => (
+                <details key={i} style={{ marginBottom: 6 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: 13, color: C.ink, padding: "6px 0", lineHeight: 1.4 }}>{item.q}</summary>
+                  <div style={{ fontSize: 13, color: C.inkDim, padding: "6px 0 6px 16px", borderLeft: `3px solid ${C.yellow}`, marginLeft: 4, lineHeight: 1.5 }}>{item.a}</div>
+                </details>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          position: "sticky", bottom: 8, marginTop: 20, background: C.board,
+          border: `2px solid ${C.green}`, borderRadius: 12, padding: "10px 20px",
+          display: "flex", justifyContent: "center", alignItems: "center", gap: 16,
+          boxShadow: "0 -2px 16px rgba(0,0,0,0.08)", flexWrap: "wrap",
+        }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.inkMuted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Accounting Equation</span>
+          <span style={{ fontFamily: "'Caveat', cursive", fontSize: 22, fontWeight: 800, color: C.blue }}>Assets £113,535</span>
+          <span style={{ color: C.inkMuted, fontSize: 18 }}>=</span>
+          <span style={{ fontFamily: "'Caveat', cursive", fontSize: 22, fontWeight: 800, color: C.purple }}>Liabilities £19,550</span>
+          <span style={{ color: C.inkMuted, fontSize: 18 }}>+</span>
+          <span style={{ fontFamily: "'Caveat', cursive", fontSize: 22, fontWeight: 800, color: C.green }}>Equity £93,985</span>
+        </div>
+
+        <div style={{ textAlign: "center", padding: "20px 0 10px", fontSize: 12, color: C.inkMuted }}>
+          University of Haifa — MBA Technology Management — Financial Accounting Exercise 3.6
+        </div>
+      </div>
+    </div>
+    </HighlightCtx.Provider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
